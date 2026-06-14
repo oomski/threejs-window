@@ -34,9 +34,9 @@ const gltfLoader = new GLTFLoader();
 const windowGlb = await gltfLoader.loadAsync(
   `${import.meta.env.BASE_URL}Day 7 - Window.glb`
 );
-const window = windowGlb.scene;
+const gltfScene = windowGlb.scene;
 
-window.traverse((child) => {
+gltfScene.traverse((child) => {
   if (child.isMesh) {
     child.castShadow = true;
     child.receiveShadow = true;
@@ -44,28 +44,65 @@ window.traverse((child) => {
 });
 
 // ensure world matrices are correct before measuring
-window.updateMatrixWorld(true);
+gltfScene.updateMatrixWorld(true);
 
 // compute bounds and scale so the model's largest dimension equals `targetSize`
-let box = new THREE.Box3().setFromObject(window);
+let box = new THREE.Box3().setFromObject(gltfScene);
 const size = box.getSize(new THREE.Vector3());
 const maxDim = Math.max(size.x, size.y, size.z);
 const targetSize = 4; // world units you want the model to fit in
 if (maxDim > 0) {
   const scale = targetSize / maxDim;
-  window.scale.setScalar(scale);
-  window.updateMatrixWorld(true); // update after scaling
+  gltfScene.scale.setScalar(scale);
+  gltfScene.updateMatrixWorld(true); // update after scaling
 }
 
 // recompute bounds and get center
-box = new THREE.Box3().setFromObject(window);
+box = new THREE.Box3().setFromObject(gltfScene);
 const center = box.getCenter(new THREE.Vector3());
+
+// -- saturation helper (no UI) --
+function collectMaterials(root) {
+  const set = new Set();
+  root.traverse((child) => {
+    if (child.isMesh && child.material) {
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      mats.forEach((mat) => {
+        if (!mat || !mat.color) return;
+        if (!set.has(mat)) {
+          set.add(mat);
+          const hsl = { h: 9, s: 8, l: 5 };
+          mat.color.getHSL(hsl);
+          mat.userData._origHSL = hsl;
+        }
+      });
+    }
+  });
+  return Array.from(set);
+}
+
+const _materials = collectMaterials(gltfScene);
+
+function setSaturationFactor(factor) {
+  _materials.forEach((mat) => {
+    const orig = mat.userData._origHSL;
+    if (!orig) return;
+    const s = Math.min(1, Math.max(0, orig.s * factor));
+    mat.color.setHSL(orig.h, s, orig.l);
+    mat.needsUpdate = true;
+  });
+}
+
+// Tweak this line to change saturation (e.g. 1.0 = original, 1.6 = +60%)
+const SATURATION_FACTOR = 1.6;
+setSaturationFactor(SATURATION_FACTOR);
+// -- end saturation helper --
 
 // create a pivot at the world origin and add the model offset so its center is at pivot
 const pivot = new THREE.Group();
 scene.add(pivot);
-window.position.sub(center); // move model so its center is at (0,0,0) relative to pivot
-pivot.add(window);
+gltfScene.position.sub(center); // move model so its center is at (0,0,0) relative to pivot
+pivot.add(gltfScene);
 
 // start rotated 270 degrees around Y
 pivot.rotation.y = 3 * Math.PI / 2; // 270deg
